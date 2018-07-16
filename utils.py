@@ -1,14 +1,13 @@
 from bilibili import bilibili
-from printer import Printer
+import printer
 import time
 import datetime
 from PIL import Image
 from io import BytesIO
 import webbrowser
 import re
-import aiohttp
-import asyncio
-import Tasks
+from operator import itemgetter
+
 
 def adjust_for_chinese(str):
     SPACE = '\N{IDEOGRAPHIC SPACE}'
@@ -25,9 +24,11 @@ def adjust_for_chinese(str):
     md = f'{str[0]:^10}'
     return md.translate(full)
 
+
 def CurrentTime():
     currenttime = int(time.mktime(datetime.datetime.now().timetuple()))
     return str(currenttime)
+
 
 def seconds_until_tomorrow():
     today = datetime.date.today()
@@ -43,10 +44,10 @@ async def WearingMedalInfo():
         data = json_response['data']
         if data:
             # print(data['roominfo']['room_id'], data['today_feed'], data['day_limit'])
-            return data['roominfo']['room_id'], data['today_feed'], data['day_limit']
+            return [(data['roominfo']['room_id'],  int(data['day_limit']) - int(data['today_feed']), data['medal_name']), ]
         else:
             # print('暂无佩戴任何勋章')
-            return
+            return []
 
         # web api返回值信息少
 
@@ -62,9 +63,10 @@ async def TitleInfo():
                 max = '-'
             print(i['activity'], i['score'], max)
 
-async def fetch_medal(printer=True):
+async def fetch_medal(show=True, list_wanted_medal=[]):
     printlist = []
-    if printer:
+    list_medal = []
+    if show:
         printlist.append('查询勋章信息')
         printlist.append(
             '{} {} {:^12} {:^10} {} {:^6} '.format(adjust_for_chinese('勋章'), adjust_for_chinese('主播昵称'), '亲密度',
@@ -74,7 +76,8 @@ async def fetch_medal(printer=True):
     # print(json_response)
     if not json_response['code']:
         for i in json_response['data']['fansMedalList']:
-            if printer:
+            list_medal.append((i['roomid'], int(i['dayLimit']) - int(i['todayFeed']), i['medal_name'], i['level']))
+            if show:
                 printlist.append(
                     '{} {} {:^14} {:^14} {} {:^6} '.format(adjust_for_chinese(i['medal_name'] + '|' + str(i['level'])),
                                                            adjust_for_chinese(i['anchorInfo']['uname']),
@@ -82,26 +85,30 @@ async def fetch_medal(printer=True):
                                                            str(i['todayFeed']) + '/' + str(i['dayLimit']),
                                                            adjust_for_chinese(str(i['rank'])),
                                                            dic_worn[str(i['status'])]))
-        if printer:
-            Printer().printlist_append(['join_lottery', '', 'user', printlist], True)
-        return
-
-async def send_danmu_msg_andriod(msg, roomId):
-    json_response = await bilibili.request_send_danmu_msg_andriod(msg, roomId)
-    # print('ggghhhjj')
-    print(json_response)
+        if show:
+            printer.info(printlist, True)
+        if list_wanted_medal:
+            list_return_medal = []
+            for roomid in list_wanted_medal:
+                for i in list_medal:
+                    if i[0] == roomid:
+                        list_return_medal.append(i[:3])
+                        break
+        else:
+            list_return_medal = [i[:3] for i in sorted(list_medal, key=itemgetter(3), reverse=True)]
+        return list_return_medal
 
 async def send_danmu_msg_web(msg, roomId):
     json_response = await bilibili.request_send_danmu_msg_web(msg, roomId)
     print(json_response)
 
-def find_live_user_roomid(wanted_name):
-    print('期望名字', wanted_name)
+async def find_live_user_roomid(wanted_name):
+    print(wanted_name)
     for i in range(len(wanted_name), 0, -1):
-        response = bilibili.request_search_user(wanted_name[:i])
-        results = response.json()['result']
+        json_rsp = await bilibili.request_search_biliuser(wanted_name[:i])
+        results = json_rsp['result']
         if results is None:
-            print('屏蔽全名')
+            # print('屏蔽全名')
             continue
         for i in results:
             real_name = re.sub(r'<[^>]*>', '', i['uname'])
@@ -109,7 +116,50 @@ def find_live_user_roomid(wanted_name):
             if real_name == wanted_name:
                 print('找到结果', i['room_id'])
                 return i['room_id']
-        print('结束一次')
+        # print('结束一次')
+
+    print('第2备份启用')
+    for i in range(len(wanted_name)):
+        json_rsp = await bilibili.request_search_biliuser(wanted_name[i:])
+        results = json_rsp['result']
+        if results is None:
+            # print('屏蔽全名')
+            continue
+        for i in results:
+            real_name = re.sub(r'<[^>]*>', '', i['uname'])
+            # print('去除干扰', real_name)
+            if real_name == wanted_name:
+                print('找到结果', i['room_id'])
+                return i['room_id']
+
+    print('第3备份启用')
+    for i in range(len(wanted_name), 0, -1):
+        json_rsp = await bilibili.request_search_liveuser(wanted_name[:i])
+        results = json_rsp['result']
+        if results is None:
+            # print('屏蔽全名')
+            continue
+        for i in results:
+            real_name = re.sub(r'<[^>]*>', '', i['uname'])
+            # print('去除干扰', real_name)
+            if real_name == wanted_name:
+                print('找到结果', i['roomid'])
+                return i['roomid']
+
+    print('第4备份启用')
+    for i in range(len(wanted_name)):
+        json_rsp = await bilibili.request_search_liveuser(wanted_name[i:])
+        results = json_rsp['result']
+        if results is None:
+            # print('屏蔽全名')
+            continue
+        for i in results:
+            real_name = re.sub(r'<[^>]*>', '', i['uname'])
+            # print('去除干扰', real_name)
+            if real_name == wanted_name:
+                print('找到结果', i['roomid'])
+                return i['roomid']
+
 
 async def fetch_capsule_info():
     json_response = await bilibili.request_fetch_capsule()
@@ -174,8 +224,8 @@ async def fetch_user_info():
         bili_coins = userCoinIfo['bili_coins']
         print('# 用户名', uname)
         size = 100, 100
-        response_face = bilibili.request_load_img(userInfo['face'])
-        img = Image.open(BytesIO(response_face.content))
+        response_face = await bilibili.request_load_img(userInfo['face'])
+        img = Image.open(BytesIO(await response_face.read()))
         img.thumbnail(size)
         try:
             img.show()
@@ -198,11 +248,11 @@ async def fetch_user_info():
         print(process_bar)
         print('# 等级榜', user_level_rank)
 
-async def fetch_bag_list(verbose=False, bagid=None, printer=True):
+async def fetch_bag_list(verbose=False, bagid=None, show=True):
     json_response = await bilibili.request_fetch_bag_list()
     gift_list = []
     # print(json_response)
-    if printer:
+    if show:
         print('[{}] 查询可用礼物'.format(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))))
     for i in json_response['data']['list']:
         bag_id = i['bag_id']
@@ -218,11 +268,11 @@ async def fetch_bag_list(verbose=False, bagid=None, printer=True):
             left_days = round(left_time / 86400, 1)
         if bagid is not None:
             if bag_id == int(bagid):
-                return gift_id
+                return gift_id, gift_num
         else:
             if verbose:
                 print(f'# 编号为{bag_id}的{gift_name:^3}X{gift_num:^4} (在{left_days:^6}天后过期)')
-            elif printer:
+            elif show:
                 print(f'# {gift_name:^3}X{gift_num:^4} (在{left_days:^6}天后过期)')
 
         gift_list.append([gift_id, gift_num, bag_id, left_time])
@@ -296,12 +346,15 @@ async def check_room(roomid):
     elif json_response['code'] == 60004:
         print(json_response['msg'])
 
-async def send_gift_web(roomid, giftid, giftnum, bagid):
+async def send_gift_web(roomid, num_wanted, bagid, giftid=None):
+    if giftid is None:
+        giftid, num_owned = await fetch_bag_list(False, bagid)
+        num_wanted = min(num_owned, num_wanted)
     json_response = await bilibili.request_check_room(roomid)
     ruid = json_response['data']['uid']
     biz_id = json_response['data']['room_id']
     # 200027 不足数目
-    json_response1 = await bilibili.request_send_gift_web(giftid, giftnum, bagid, ruid, biz_id)
+    json_response1 = await bilibili.request_send_gift_web(giftid, num_wanted, bagid, ruid, biz_id)
     if not json_response1['code']:
         # print(json_response1['data'])
         print(f'# 送出礼物: {json_response1["data"]["gift_name"]}X{json_response1["data"]["gift_num"]}')
@@ -325,15 +378,15 @@ async def fetch_liveuser_info(real_roomid):
             print('# 该主播暂时没有开通勋章')  # print(json_response_fan)
 
         size = 100, 100
-        response_face = bilibili.request_load_img(data['info']['face'])
-        img = Image.open(BytesIO(response_face.content))
+        response_face = await bilibili.request_load_img(data['info']['face'])
+        img = Image.open(BytesIO(await response_face.read()))
         img.thumbnail(size)
         try:
             img.show()
         except:
             pass
 
-async def check_room_true(roomid):
+async def enter_room(roomid):
     json_response = await bilibili.request_check_room(roomid)
 
     if not json_response['code']:
@@ -341,57 +394,87 @@ async def check_room_true(roomid):
         param1 = data['is_hidden']
         param2 = data['is_locked']
         param3 = data['encrypted']
-        # print(param1, param2, param3)
-        return param1, param2, param3
+        if any((param1, param2, param3)):
+            printer.info([f'抽奖脚本检测到房间{roomid:^9}为异常房间'], True)
+            printer.warn(f'抽奖脚本检测到房间{roomid:^9}为异常房间')
+            return False
+        else:
+            await bilibili.post_watching_history(roomid)
+            return True
 
 async def GiveCoin2Av(video_id, num):
     if num not in (1, 2):
         return False
-    async with aiohttp.ClientSession() as session:
-        # 10004 稿件已经被删除
-        # 34005 超过，满了
-        # -104 不足硬币
-        json_rsp = await bilibili().ReqGiveCoin2Av(session, video_id, num)
-        code = json_rsp['code']
-        if not code:
-            print(f'给视频av{video_id}投{num}枚硬币成功')
-            return True
-        else:
-            print('投币失败', json_rsp['message'])
-            if code == -104:
-                return None
-            return False
-
-async def CoinExp(show=True):
-    async with aiohttp.ClientSession() as session:
-        json_rsp = await bilibili().ReqCoinExp(session)
-        if not json_rsp["code"]:
-            if show: print(f'今日已投币获取经验值为{json_rsp["number"]}exp')
-        else:
-            if show: print(f'获取已投币经验值失败,error_code={json_rsp["code"]},error_msg={json_rsp["message"]}')
-        return int(json_rsp["number"])
+    # 10004 稿件已经被删除
+    # 34005 超过，满了
+    # -104 不足硬币
+    json_rsp = await bilibili().ReqGiveCoin2Av(video_id, num)
+    code = json_rsp['code']
+    if not code:
+        print(f'给视频av{video_id}投{num}枚硬币成功')
+        return True
+    else:
+        print('投币失败', json_rsp['message'])
+        if code == -104:
+            return None
+        return False
 
 async def GetTopVideoList():
-    async with aiohttp.ClientSession() as session:
-        html = await session.get('https://www.bilibili.com/ranking/all/0/0/1/')
-        list_av = re.findall(r'(?<=www.bilibili.com/video/av)\d+(?=/)', await html.text())
-        list_av = list(set(list_av))
-        return list_av
+    text_rsp = await bilibili().req_fetch_av()
+    list_av = re.findall(r'(?<=www.bilibili.com/video/av)\d+(?=/)', text_rsp)
+    list_av = list(set(list_av))
+    return list_av
+
+async def fetch_uper_video(list_mid):
+    list_av = []
+    for mid in list_mid:
+        json_rsp = await bilibili().req_fetch_uper_video(mid, 1)
+        # print(json_rsp)
+        data = json_rsp['data']
+        pages = data['pages']
+        if data['vlist']:
+            list_av += [av['aid'] for av in data['vlist']]
+        for page in range(2, pages + 1):
+            json_rsp = await bilibili().req_fetch_uper_video(mid, page)
+            # print(json_rsp)
+            data = json_rsp['data']
+            list_av += [av['aid'] for av in data['vlist']]
+    # print(len(list_av), list_av)
+    return list_av
 
 async def GetVideoCid(video_aid):
-    async with aiohttp.ClientSession() as session:
-        json_rsp = await bilibili().ReqVideoCid(video_aid, session)
-        print(json_rsp[0]['cid'])
-        return (json_rsp[0]['cid'])
-
-async def GetUesrInfo():
-    async with aiohttp.ClientSession() as session:
-        json_rsp = await bilibili().ReqMasterInfo(session)
-        print(f'主站等级{json_rsp["level_info"]["current_level"]} {json_rsp["level_info"]["current_exp"]}/{json_rsp["level_info"]["next_exp"]}')
+    json_rsp = await bilibili().ReqVideoCid(video_aid)
+    # print(json_rsp[0]['cid'])
+    return (json_rsp[0]['cid'])
 
 async def GetRewardInfo(show=True):
-    async with aiohttp.ClientSession() as session:
-        json_rsp = await bilibili().ReqMasterInfo(session)
-        num = await CoinExp(False)
-        if show: print(f'每日登陆：{json_rsp["login"]} 每日观看：{json_rsp["watch_av"]} 每日投币经验：{num}/50 每日分享：{json_rsp["share_av"]}')
-        return json_rsp
+    json_rsp = await bilibili().ReqMasterInfo()
+    login = json_rsp['login']
+    watch_av = json_rsp['watch_av']
+    coins_av = json_rsp['coins_av']
+    share_av = json_rsp['share_av']
+    level_info = json_rsp["level_info"]
+    current_exp = level_info['current_exp']
+    next_exp = level_info['next_exp']
+    if next_exp == -1:
+        next_exp = current_exp
+    print(f'# 主站等级值 {level_info["current_level"]}')
+    print(f'# 主站经验值 {level_info["current_exp"]}')
+    print(f'# 主站剩余值 {- current_exp + next_exp}')
+    arrow = int(current_exp * 30 / next_exp)
+    line = 30 - arrow
+    percent = current_exp / next_exp * 100.0
+    process_bar = '# [' + '>' * arrow + '-' * line + ']' + '%.2f' % percent + '%'
+    print(process_bar)
+    if show: print(f'每日登陆：{login} 每日观看：{watch_av} 每日投币经验：{coins_av}/50 每日分享：{share_av}')
+    return login, watch_av, coins_av, share_av
+    
+        
+async def FetchRoomArea(roomid):
+    json_response = await bilibili.ReqRoomInfo(roomid)
+
+    if not json_response['code']:
+        # print(json_response)
+        # print(json_response['data']['parent_area_id'])
+        return json_response['data']['parent_area_id']
+    

@@ -61,24 +61,25 @@ def process_send_gift_web():
     Biliconsole.append2list_console([[True], utils.fetch_bag_list])
     bagid = input('请输入要发送的礼物编号:')
     # print('是谁', giftid)
-    giftnum = input('请输入要发送的礼物数目:')
+    giftnum = int(input('请输入要发送的礼物数目:'))
     roomid = input('请输入要发送的房间号:')
     real_roomid = fetch_real_roomid(roomid)
-    Biliconsole.append2list_console([[real_roomid, [[False, bagid], utils.fetch_bag_list], giftnum, bagid], utils.send_gift_web])
+    # Biliconsole.append2list_console([[real_roomid, [[False, bagid], utils.fetch_bag_list], giftnum, bagid], utils.send_gift_web])
+    Biliconsole.append2list_console([[real_roomid, giftnum, bagid], utils.send_gift_web])
     
     
 def preprocess_change_danmuji_roomid():
     roomid = input('请输入roomid')
     real_roomid = fetch_real_roomid(roomid)
-    Biliconsole.append2list_console([[real_roomid], 'normal', connect.reconnect])
+    Biliconsole.append2list_console([[real_roomid], connect.reconnect])
 
 
 def change_printer_dic_user():
     new_words = input('弹幕控制')
     if new_words == 'T':
-        Printer().dic_user['print_control']['弹幕'] = True
+        Printer().dic_user['print_control']['danmu'] = True
     else:
-        Printer().dic_user['print_control']['弹幕'] = False
+        Printer().dic_user['print_control']['danmu'] = False
         
         
 def preprocess_fetch_liveuser_info():
@@ -99,7 +100,8 @@ def process_watch_living_video():
         Biliconsole.append2list_console([[real_roomid], utils.watch_living_video])
         return
     print('仅支持ios')
-    
+
+        
 def InputGiveCoin2Av():
     video_id = input('请输入av号')
     num = input('输入数目')
@@ -112,7 +114,7 @@ options = {
     '4': utils.fetch_medal,  # async
     '5': utils.fetch_user_info,  # async
     '6': utils.check_taskinfo,  # async
-    '7': preprocess_send_danmu_msg_andriod,  # input async
+    '7': preprocess_send_danmu_msg_web,  # input async
     '8': preprocess_send_danmu_msg_web,  # input async
     '9': preprocess_check_room,  # input async
     '10': process_send_gift_web,  # input async !!!
